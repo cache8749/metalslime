@@ -47,27 +47,19 @@ def get_latest_posts():
         print(f"Error calling API: {e}")
         return []
 
-def send_wechat_notification(content, post_time):
+def send_wechat_notification(content, post_time, screen_name):
     if not content or not APP_ID or not APP_SECRET or not TEMPLATE_ID:
         print("Missing WeChat configuration, skipping push.")
         return
 
     client = WeChatClient(APP_ID, APP_SECRET)
     wm = WeChatMessage(client)
-    
-    # Split content into 20-character chunks for WeChat template limits
-    chunk_size = 20
-    chunks = [content[i:i + chunk_size] for i in range(0, len(content), chunk_size)]
-    
+
     data = {
-        "name": {"value": "雪球-2292705444"},
+        "name": {"value": screen_name},
         "time": {"value": post_time},
+        "content": {"value": content},
     }
-    
-    # Fill note1 to note5
-    for i in range(5):
-        val = chunks[i] if i < len(chunks) else ""
-        data[f"note{i+1}"] = {"value": val}
 
     for user_id in USER_IDS:
         if user_id:
@@ -100,23 +92,37 @@ def main():
         print("No new posts.")
         return
 
+    def extract_body(p):
+        # Xueqiu returns the body in different fields depending on post type:
+        # short status uses `text`; long-form 长文 uses `description` + `title`.
+        for key in ('description', 'text'):
+            body = format_text(p.get(key))
+            if body and body.strip() and body.strip() != '查看全文':
+                return body.strip()
+        return format_text(p.get('title')).strip()
+
     for post in new_posts:
         post_id = post.get('id')
-        text = format_text(post.get('text'))
-        
+        text = extract_body(post)
+
         # Handle retweets/quotes
         retweet = post.get('retweeted_status')
         if retweet:
             rt_user = retweet.get('user', {}).get('screen_name', 'Unknown')
-            rt_text = format_text(retweet.get('text'))
+            rt_text = extract_body(retweet)
             text = f"{text} // 转发 @{rt_user}: {rt_text}"
+
+        if not text:
+            text = "(无内容)"
         
         # Format time (created_at is typically ms timestamp)
         created_at = post.get('created_at', 0)
         post_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(created_at/1000))
         
+        screen_name = (post.get('user') or {}).get('screen_name') or f"雪球-{XUEQIU_USER_ID}"
+
         print(f"Processing new post {post_id}...")
-        send_wechat_notification(text, post_time)
+        send_wechat_notification(text, post_time, screen_name)
         
         # Update last_id immediately after sending each post to be safe
         last_id = post_id

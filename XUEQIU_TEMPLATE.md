@@ -9,16 +9,11 @@
 ```text
 博主：{{name.DATA}}
 时间：{{time.DATA}}
-内容：
-{{note1.DATA}}
-{{note2.DATA}}
-{{note3.DATA}}
-{{note4.DATA}}
-{{note5.DATA}}
+内容：{{content.DATA}}
 ```
 
 ---
 **说明：**
 - `name`: 博主标识 (雪球-2292705444)
 - `time`: 发帖时间 (YYYY-MM-DD HH:MM:SS)
-- `note1-5`: 帖子内容 (每条限20字，共100字上限)
+- `content`: 帖子正文（单字段，无字数分块）
