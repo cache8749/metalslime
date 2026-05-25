@@ -9,11 +9,11 @@
 ```text
 博主：{{name.DATA}}
 时间：{{time.DATA}}
-内容：{{content.DATA}}
+内容：{{content1.DATA}}{{content2.DATA}}{{content3.DATA}}{{content4.DATA}}{{content5.DATA}}
 ```
 
 ---
 **说明：**
 - `name`: 博主标识 (雪球-2292705444)
 - `time`: 发帖时间 (YYYY-MM-DD HH:MM:SS)
-- `content`: 帖子正文（单字段，无字数分块）
+- `content1`–`content5`: 帖子正文，每段约 19 字。

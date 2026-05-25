@@ -13,10 +13,19 @@ TEMPLATE_ID = os.environ.get("TEMPLATE_ID_XUEQIU")
 XUEQIU_USER_ID = "2292705444"
 LAST_ID_FILE = "xueqiu_last_id.txt"
 
+# WeChat template messages truncate each {{var.DATA}} field at ~20 chars with "...".
+# Split content across N fields concatenated in the template to extend the cap.
+CONTENT_CHUNK_SIZE = 19
+CONTENT_CHUNK_COUNT = 5
+
 def format_text(text):
     if not text:
         return ""
     soup = BeautifulSoup(text, 'html.parser')
+    # Xueqiu renders emoji as <img alt="[狗头]" ...>; replace with the alt/title so it survives get_text()
+    for img in soup.find_all('img'):
+        label = img.get('alt') or img.get('title') or ''
+        img.replace_with(label)
     return soup.get_text()
 
 def get_latest_posts():
@@ -36,7 +45,7 @@ def get_latest_posts():
         print(f"Error getting cookies: {e}")
         return []
 
-    api_url = f'https://xueqiu.com/v4/statuses/user_timeline.json?user_id={XUEQIU_USER_ID}&page=1&type=0&count=20'
+    api_url = f'https://xueqiu.com/v4/statuses/user_timeline.json?user_id={XUEQIU_USER_ID}&page=1&count=20'
     try:
         response = session.get(api_url, headers=headers, timeout=10)
         if response.status_code != 200:
@@ -46,6 +55,14 @@ def get_latest_posts():
     except Exception as e:
         print(f"Error calling API: {e}")
         return []
+
+def chunk_content(text):
+    capacity = CONTENT_CHUNK_SIZE * CONTENT_CHUNK_COUNT
+    truncated = len(text) > capacity
+    if truncated:
+        text = text[:capacity - 1] + "…"
+    return [text[i * CONTENT_CHUNK_SIZE:(i + 1) * CONTENT_CHUNK_SIZE]
+            for i in range(CONTENT_CHUNK_COUNT)]
 
 def send_wechat_notification(content, post_time, screen_name):
     if not content or not APP_ID or not APP_SECRET or not TEMPLATE_ID:
@@ -58,8 +75,9 @@ def send_wechat_notification(content, post_time, screen_name):
     data = {
         "name": {"value": screen_name},
         "time": {"value": post_time},
-        "content": {"value": content},
     }
+    for i, chunk in enumerate(chunk_content(content), start=1):
+        data[f"content{i}"] = {"value": chunk}
 
     for user_id in USER_IDS:
         if user_id:
