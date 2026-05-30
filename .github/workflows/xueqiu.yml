@@ -33,6 +33,7 @@ jobs:
           APP_SECRET: ${{ secrets.APP_SECRET }}
           USER_IDS: ${{ secrets.USER_IDS }}
           TEMPLATE_ID_XUEQIU: ${{ secrets.TEMPLATE_ID_XUEQIU }}
+          XUEQIU_COOKIE: ${{ secrets.XUEQIU_COOKIE }}
 
       - name: Commit and Push last ID
         run: |

@@ -10,13 +10,20 @@ APP_ID = os.environ.get("APP_ID")
 APP_SECRET = os.environ.get("APP_SECRET")
 USER_IDS = os.environ.get("USER_IDS", "").split(";")
 TEMPLATE_ID = os.environ.get("TEMPLATE_ID_XUEQIU")
+# Xueqiu sits behind an Aliyun WAF JS challenge: plain requests only ever get the
+# `acw_tc` cookie, never `xq_a_token`, so the JSON API returns an HTML challenge page.
+# Supply a logged-in browser Cookie header here (copy from DevTools → Network → any
+# xueqiu.com request → Request Headers → Cookie). The cookie expires periodically and
+# must be refreshed. Without it the legacy unauthenticated handshake is attempted as a
+# best-effort fallback (will usually be blocked by the WAF).
+XUEQIU_COOKIE = os.environ.get("XUEQIU_COOKIE", "").strip()
 XUEQIU_USER_ID = "2292705444"
 LAST_ID_FILE = "xueqiu_last_id.txt"
 
 # WeChat template messages truncate each {{var.DATA}} field at ~20 chars with "...".
 # Split content across N fields concatenated in the template to extend the cap.
 CONTENT_CHUNK_SIZE = 19
-CONTENT_CHUNK_COUNT = 5
+CONTENT_CHUNK_COUNT = 10
 
 def format_text(text):
     if not text:
@@ -28,32 +35,56 @@ def format_text(text):
         img.replace_with(label)
     return soup.get_text()
 
+def _looks_like_waf(text):
+    # The Aliyun WAF challenge page is HTML, not JSON; these markers identify it.
+    head = text[:2048]
+    return any(marker in head for marker in ('renderData', '_waf_', 'aliyun_waf'))
+
 def get_latest_posts():
     session = requests.Session()
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Referer': f'https://xueqiu.com/u/{XUEQIU_USER_ID}'
     }
-    
-    # Get cookies
-    try:
-        session.get('https://xueqiu.com/', headers=headers, timeout=10)
-        time.sleep(1)
-        session.get(f'https://xueqiu.com/u/{XUEQIU_USER_ID}', headers=headers, timeout=10)
-        time.sleep(1)
-    except Exception as e:
-        print(f"Error getting cookies: {e}")
-        return []
+
+    if XUEQIU_COOKIE:
+        # A logged-in cookie carries xq_a_token and gets us straight past the WAF.
+        headers['Cookie'] = XUEQIU_COOKIE
+    else:
+        # Best-effort legacy handshake (usually blocked by the WAF now).
+        try:
+            session.get('https://xueqiu.com/', headers=headers, timeout=10)
+            time.sleep(1)
+            session.get(f'https://xueqiu.com/u/{XUEQIU_USER_ID}', headers=headers, timeout=10)
+            time.sleep(1)
+        except Exception as e:
+            print(f"Error getting cookies: {e}")
+            return []
 
     api_url = f'https://xueqiu.com/v4/statuses/user_timeline.json?user_id={XUEQIU_USER_ID}&page=1&count=20'
     try:
         response = session.get(api_url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            print(f"Error fetching timeline: {response.status_code}")
-            return []
-        return response.json().get('statuses', [])
     except Exception as e:
         print(f"Error calling API: {e}")
+        return []
+
+    if response.status_code != 200:
+        print(f"Error fetching timeline: {response.status_code}")
+        return []
+
+    if 'application/json' not in response.headers.get('content-type', '') or _looks_like_waf(response.text):
+        if XUEQIU_COOKIE:
+            print("Blocked by Xueqiu WAF despite cookie — the XUEQIU_COOKIE has likely "
+                  "expired. Log into xueqiu.com and refresh the cookie.")
+        else:
+            print("Blocked by Xueqiu WAF (no XUEQIU_COOKIE set). Set XUEQIU_COOKIE to a "
+                  "logged-in browser Cookie header so the request can pass the challenge.")
+        return []
+
+    try:
+        return response.json().get('statuses', [])
+    except ValueError as e:
+        print(f"Error parsing API response as JSON: {e}")
         return []
 
 def chunk_content(text):
